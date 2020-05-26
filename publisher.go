@@ -65,7 +65,7 @@ func (p *publisher) Publish() PubResult {
 			if tkn.Error() != nil {
 				log.Printf("WARN: failed to publish %s\n", tkn.Error())
 			} else {
-				log.Println("Client " + p.id + " published")
+				// log.Println("Client " + p.id + " published")
 			}
 			published++
 			time.Sleep(p.timeout)
