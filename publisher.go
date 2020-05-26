@@ -8,7 +8,12 @@ import (
 )
 
 type Publisher interface {
-	Publish() int
+	Publish() PubResult
+}
+
+type PubResult struct {
+	ID  string
+	Num int64
 }
 
 type publisher struct {
@@ -45,8 +50,9 @@ func NewPublisher(cli mqtt.Client, cfg PublisherConfig) Publisher {
 	}
 }
 
-func (p *publisher) Publish() int {
-	var published, allMsgs int
+func (p *publisher) Publish() PubResult {
+	var published int64
+	var allMsgs int
 	for allMsgs < p.numMessages {
 		allMsgs++
 		tkn := p.client.Publish(p.topic, p.qos, false, p.payload)
@@ -59,13 +65,13 @@ func (p *publisher) Publish() int {
 			if tkn.Error() != nil {
 				log.Printf("WARN: failed to publish %s\n", tkn.Error())
 			} else {
-				// log.Println("Client " + p.id + " published")
+				log.Println("Client " + p.id + " published")
 			}
 			published++
 			time.Sleep(p.timeout)
 			continue
 		}
-		// log.Println("WARN: failed to publish due to timeout")
+		log.Println("WARN: failed to publish due to timeout")
 	}
-	return published
+	return PubResult{p.id, published}
 }

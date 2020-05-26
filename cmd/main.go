@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -9,7 +8,7 @@ import (
 	"github.com/mqtt-test"
 )
 
-const payload = `const payload = Apache License
+var payload = `const payload = Apache License
 
 const (
 	url       = "64.225.82.174:1883"
@@ -36,43 +35,51 @@ func createClient(id, username, pass string) (mqtt.Client, error) {
 	tkn := cli.Connect()`
 
 const (
-	url        = "178.62.252.95:1883"
-	numClients = 5000
-	timeout    = time.Millisecond * 100
-	keepAlive  = time.Second * 10
+	url       = "178.62.252.95:1883"
+	numPubs   = 20
+	msgPerPub = 100
+	totalMsgs = numPubs * msgPerPub
+	timeout   = time.Millisecond * 1
+	keepAlive = time.Second * 10
 )
 
 const (
-	username = "19944084-faac-498e-9a2b-4d51338df412"
-	password = "5b066d21-f9ca-4076-b641-fa93a01c1c9e"
-	channel  = "df780968-5de7-4a45-95b1-958d641970d6"
+	username = "81755d18-2b6a-4c1f-a475-0fb263182fb1"
+	password = "3f7c0ef2-188b-4b55-9b65-453dff9a07fe"
+	channel  = "bc037769-81f3-4ba6-b5ff-48984f4ec0a5"
 )
 
-func wait(ch, result chan int, num int) {
-	var total int
+func wait(ch chan mqtt.PubResult, result chan int64, num int) {
+	var total int64
 	for i := 0; i < num; i++ {
 		r := <-ch
-		total += r
+		log.Println("Publisher "+r.ID+" finished, sent: ", r.Num)
+		total += r.Num
 	}
 	result <- total
 }
 
 func main() {
+	// Increase the payload size (~152.5KB).
+	for i := 0; i < 8; i++ {
+		payload += payload
+	}
 	pld := []byte(payload)
-	ch := make(chan int)
-	result := make(chan int)
-	var clients int
-	for i := 0; i < numClients; i++ {
+	log.Println("Payload size: ", float64(len(pld))/1024, "KB")
+	ch := make(chan mqtt.PubResult)
+
+	var pubs []mqtt.Publisher
+	for i := 0; i < numPubs; i++ {
 		id := strconv.Itoa(i)
-		fmt.Println("client", id)
+		log.Println("client", id)
 		cli, err := mqtt.CreateClient(id, username, password, url, keepAlive, time.Second*10)
 		if err != nil {
-			log.Println("Failed to create client")
+			log.Println("Failed to create client", err)
 			continue
 		}
 		cfg := mqtt.PublisherConfig{
 			ID:          id,
-			NumMessages: 100,
+			NumMessages: msgPerPub,
 			Payload:     pld,
 			QoS:         2,
 			Topic:       "channels/" + channel + "/messages/" + id,
@@ -80,12 +87,62 @@ func main() {
 			PublishWait: time.Second, // 1mps
 		}
 		pub := mqtt.NewPublisher(cli, cfg)
-		clients++
-		go func() {
-			ch <- pub.Publish()
-		}()
+		pubs = append(pubs, pub)
 	}
-	go wait(ch, result, clients)
-	total := <-result
-	fmt.Println("Total messages sent: ", total)
+	resultReceived := make(chan int64)
+	runSub(resultReceived)
+	resultSent := make(chan int64)
+	go wait(ch, resultSent, len(pubs))
+	time.Sleep(time.Second)
+	log.Println("Starting publishers: ", len(pubs))
+	for _, pub := range pubs {
+		go func(pub mqtt.Publisher) {
+			ch <- pub.Publish()
+		}(pub)
+	}
+	sent := <-resultSent
+	log.Println("Total messages sent: ", sent)
+	received := <-resultReceived
+	log.Println("Total messages received: ", received)
+}
+
+func runSub(results chan int64) {
+	log.Println("Starting subscriber...")
+	cli, err := mqtt.CreateClient("SUB", username, password, url, keepAlive, time.Second*10)
+	if err != nil {
+		log.Println("Failed to create SUB", err)
+		return
+	}
+	ch := make(chan mqtt.SubResult)
+
+	cfg := mqtt.SubscriberConfig{
+		ID:    "SUB",
+		QoS:   2,
+		Topic: "channels/" + channel + "/messages/#",
+		Res:   ch,
+	}
+	sub := mqtt.NewSubscriber(cli, cfg)
+	go sub.Subscribe()
+	go waitSubs(ch, results)
+}
+
+func waitSubs(receive chan mqtt.SubResult, send chan int64) {
+	var total int64
+	timer := time.NewTimer(time.Minute * 10)
+	log.Println("Publisher aggregator started.")
+	for {
+		select {
+		case <-timer.C:
+			log.Print("Total messages received in time frame: ", total)
+			send <- total
+			return
+		case res := <-receive:
+			total = res.NumMsgs
+			if total == totalMsgs {
+				log.Print("All the messages received: ", total)
+				send <- total
+				return
+			}
+		}
+	}
 }

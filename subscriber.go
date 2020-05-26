@@ -1,7 +1,7 @@
 package mqtt
 
 import (
-	"time"
+	"sync/atomic"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
@@ -10,34 +10,43 @@ type Subscriber interface {
 	Subscribe()
 }
 
-type subscriber struct {
-	id          string
-	client      mqtt.Client
-	numMessages int
-	qos         byte
-	topic       string
+type SubResult struct {
+	ID      string
+	NumMsgs int64
 }
 
 type SubscriberConfig struct {
-	ID          string
-	NumMessages int
-	Timeout     time.Duration
-	QoS         byte
-	Topic       string
+	ID    string
+	QoS   byte
+	Topic string
+	Res   chan SubResult
+}
+
+type subscriber struct {
+	id          string
+	client      mqtt.Client
+	numMessages *int64
+	qos         byte
+	topic       string
+	res         chan SubResult
 }
 
 func NewSubscriber(cli mqtt.Client, cfg SubscriberConfig) Subscriber {
-	return &subscriber{
+	var numMessages int64
+	ret := &subscriber{
 		client:      cli,
 		id:          cfg.ID,
 		qos:         cfg.QoS,
 		topic:       cfg.Topic,
-		numMessages: cfg.NumMessages,
+		res:         cfg.Res,
+		numMessages: &numMessages,
 	}
+	return ret
 }
 
 func (s *subscriber) Subscribe() {
 	s.client.Subscribe(s.topic, s.qos, func(cli mqtt.Client, msg mqtt.Message) {
-		s.numMessages++
+		num := atomic.AddInt64(s.numMessages, 1)
+		s.res <- SubResult{s.id, num}
 	})
 }
