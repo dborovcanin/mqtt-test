@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strconv"
 	"sync"
@@ -36,11 +37,12 @@ func createClient(id, username, pass string) (mqtt.Client, error) {
 	tkn := cli.Connect()`
 
 const (
-	url       = "178.62.252.95:1883"
-	numPubs   = 4
-	msgPerPub = 100
+	// url       = "178.62.252.95:1883"
+	url       = "localhost:1883"
+	numPubs   = 10
+	msgPerPub = 10
 	totalMsgs = numPubs * msgPerPub
-	timeout   = time.Millisecond * 1000
+	timeout   = time.Millisecond * 10
 	keepAlive = time.Second * 10
 )
 
@@ -66,15 +68,15 @@ func main() {
 
 	var pubs []mqtt.Publisher
 	for i := 0; i < numPubs; i++ {
+		wg.Add(1)
 		go addPub(i, pld, &mu, &wg, &pubs)
-
 	}
-
 	wg.Wait()
+	log.Println("Starting publishers: ", len(pubs))
+	// time.Sleep(time.Second)
 	resultSent := make(chan int64)
 	ch := make(chan mqtt.PubResult)
 	go waitPub(ch, resultSent, len(pubs))
-	log.Println("Starting publishers: ", len(pubs))
 	for _, pub := range pubs {
 		go func(pub mqtt.Publisher) {
 			ch <- pub.Publish()
@@ -87,13 +89,13 @@ func main() {
 }
 
 func addPub(i int, payload []byte, mu *sync.Mutex, wg *sync.WaitGroup, pubs *[]mqtt.Publisher) {
-	wg.Add(1)
 	defer wg.Done()
 	id := strconv.Itoa(i)
-	log.Println("client", id)
+	log.Println("add client", id)
 	cli, err := mqtt.CreateClient(id, username, password, url, keepAlive, time.Second*10)
 	if err != nil {
 		log.Println("Failed to create client", err)
+		return
 	}
 	cfg := mqtt.PublisherConfig{
 		ID:          id,
@@ -107,6 +109,7 @@ func addPub(i int, payload []byte, mu *sync.Mutex, wg *sync.WaitGroup, pubs *[]m
 	pub := mqtt.NewPublisher(cli, cfg)
 	mu.Lock()
 	*pubs = append(*pubs, pub)
+	fmt.Println(len(*pubs))
 	mu.Unlock()
 }
 
