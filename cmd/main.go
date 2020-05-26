@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/mqtt-test"
@@ -36,10 +37,10 @@ func createClient(id, username, pass string) (mqtt.Client, error) {
 
 const (
 	url       = "178.62.252.95:1883"
-	numPubs   = 20
+	numPubs   = 4
 	msgPerPub = 100
 	totalMsgs = numPubs * msgPerPub
-	timeout   = time.Millisecond * 1
+	timeout   = time.Millisecond * 1000
 	keepAlive = time.Second * 10
 )
 
@@ -49,16 +50,6 @@ const (
 	channel  = "bc037769-81f3-4ba6-b5ff-48984f4ec0a5"
 )
 
-func wait(ch chan mqtt.PubResult, result chan int64, num int) {
-	var total int64
-	for i := 0; i < num; i++ {
-		r := <-ch
-		log.Println("Publisher "+r.ID+" finished, sent: ", r.Num)
-		total += r.Num
-	}
-	result <- total
-}
-
 func main() {
 	// Increase the payload size (~152.5KB).
 	for i := 0; i < 8; i++ {
@@ -66,34 +57,23 @@ func main() {
 	}
 	pld := []byte(payload)
 	log.Println("Payload size: ", float64(len(pld))/1024, "KB")
-	ch := make(chan mqtt.PubResult)
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	resultReceived := make(chan int64)
+	runSub(resultReceived)
 
 	var pubs []mqtt.Publisher
 	for i := 0; i < numPubs; i++ {
-		id := strconv.Itoa(i)
-		log.Println("client", id)
-		cli, err := mqtt.CreateClient(id, username, password, url, keepAlive, time.Second*10)
-		if err != nil {
-			log.Println("Failed to create client", err)
-			continue
-		}
-		cfg := mqtt.PublisherConfig{
-			ID:          id,
-			NumMessages: msgPerPub,
-			Payload:     pld,
-			QoS:         2,
-			Topic:       "channels/" + channel + "/messages/" + id,
-			Timeout:     timeout,
-			PublishWait: time.Second, // 1mps
-		}
-		pub := mqtt.NewPublisher(cli, cfg)
-		pubs = append(pubs, pub)
+		go addPub(i, pld, &mu, &wg, &pubs)
+
 	}
-	resultReceived := make(chan int64)
-	runSub(resultReceived)
+
+	wg.Wait()
 	resultSent := make(chan int64)
-	go wait(ch, resultSent, len(pubs))
-	time.Sleep(time.Second)
+	ch := make(chan mqtt.PubResult)
+	go waitPub(ch, resultSent, len(pubs))
 	log.Println("Starting publishers: ", len(pubs))
 	for _, pub := range pubs {
 		go func(pub mqtt.Publisher) {
@@ -104,6 +84,30 @@ func main() {
 	log.Println("Total messages sent: ", sent)
 	received := <-resultReceived
 	log.Println("Total messages received: ", received)
+}
+
+func addPub(i int, payload []byte, mu *sync.Mutex, wg *sync.WaitGroup, pubs *[]mqtt.Publisher) {
+	wg.Add(1)
+	defer wg.Done()
+	id := strconv.Itoa(i)
+	log.Println("client", id)
+	cli, err := mqtt.CreateClient(id, username, password, url, keepAlive, time.Second*10)
+	if err != nil {
+		log.Println("Failed to create client", err)
+	}
+	cfg := mqtt.PublisherConfig{
+		ID:          id,
+		NumMessages: msgPerPub,
+		Payload:     payload,
+		QoS:         2,
+		Topic:       "channels/" + channel + "/messages/" + id,
+		Timeout:     timeout,
+		PublishWait: time.Second, // 1mps
+	}
+	pub := mqtt.NewPublisher(cli, cfg)
+	mu.Lock()
+	*pubs = append(*pubs, pub)
+	mu.Unlock()
 }
 
 func runSub(results chan int64) {
@@ -128,7 +132,7 @@ func runSub(results chan int64) {
 
 func waitSubs(receive chan mqtt.SubResult, send chan int64) {
 	var total int64
-	timer := time.NewTimer(time.Minute * 10)
+	timer := time.NewTimer(time.Minute * 2)
 	log.Println("Publisher aggregator started.")
 	for {
 		select {
@@ -145,4 +149,14 @@ func waitSubs(receive chan mqtt.SubResult, send chan int64) {
 			}
 		}
 	}
+}
+
+func waitPub(ch chan mqtt.PubResult, result chan int64, num int) {
+	var total int64
+	for i := 0; i < num; i++ {
+		r := <-ch
+		log.Println("Publisher "+r.ID+" finished, sent: ", r.Num)
+		total += r.Num
+	}
+	result <- total
 }
