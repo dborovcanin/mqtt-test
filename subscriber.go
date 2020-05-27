@@ -1,7 +1,9 @@
 package mqtt
 
 import (
+	"log"
 	"sync/atomic"
+	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
@@ -41,6 +43,15 @@ func NewSubscriber(cli mqtt.Client, cfg SubscriberConfig) Subscriber {
 		res:         cfg.Res,
 		numMessages: &numMessages,
 	}
+
+	go func() {
+		ticker := time.NewTicker(time.Second * 30)
+		for {
+			<-ticker.C
+			received := atomic.LoadInt64(ret.numMessages)
+			log.Println("Recevied: ", received)
+		}
+	}()
 	return ret
 }
 
