@@ -7,15 +7,16 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
+// CreateClient creates a new MQTT client
 func CreateClient(id, username, pass, url string, keepAlive, timeout time.Duration) (mqtt.Client, error) {
 	time.Sleep(time.Second)
 	opts := mqtt.NewClientOptions().
 		AddBroker(url).
 		SetAutoReconnect(true).
+		SetCleanSession(false).
 		SetClientID(id).
 		SetUsername(username).
 		SetPassword(pass).
-		SetAutoReconnect(false).
 		SetKeepAlive(keepAlive)
 	cli := mqtt.NewClient(opts)
 	tkn := cli.Connect()
@@ -28,5 +29,5 @@ func CreateClient(id, username, pass, url string, keepAlive, timeout time.Durati
 		}
 		return cli, nil
 	}
-	return nil, errors.New("Unable to connect client")
+	return nil, errors.New("Unable to connect client " + id)
 }

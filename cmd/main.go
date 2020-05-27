@@ -36,13 +36,13 @@ func createClient(id, username, pass string) (mqtt.Client, error) {
 	tkn := cli.Connect()`
 
 const (
-	// url = "178.62.252.95:1884"
-	url       = "localhost:1884"
-	numPubs   = 500
-	msgPerPub = 100
+	url = "178.62.252.95:1884"
+	// url       = "localhost:1884"
+	numPubs   = 1000
+	msgPerPub = 500
 	totalMsgs = numPubs * msgPerPub
-	timeout   = time.Millisecond * 1000
-	keepAlive = time.Second * 10
+	timeout   = time.Millisecond * 1000000
+	keepAlive = time.Second * 6000
 )
 
 const (
@@ -53,7 +53,7 @@ const (
 
 func main() {
 	// Increase the payload size (~152.5KB).
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 2; i++ {
 		payload += payload
 	}
 	pld := []byte(payload)
@@ -71,10 +71,10 @@ func main() {
 		go addPub(i, pld, &mu, &wg, &pubs)
 	}
 	wg.Wait()
-	log.Println("Starting publishers: ", len(pubs))
 	resultSent := make(chan int64)
 	ch := make(chan mqtt.PubResult)
 	go waitPub(ch, resultSent, len(pubs))
+	log.Println("Starting publishers: ", len(pubs))
 	for _, pub := range pubs {
 		go func(pub mqtt.Publisher) {
 			ch <- pub.Publish()
@@ -133,7 +133,7 @@ func runSub(results chan int64) {
 
 func waitSubs(receive chan mqtt.SubResult, send chan int64) {
 	var total int64
-	timer := time.NewTimer(time.Minute * 3)
+	timer := time.NewTimer(time.Minute * 10)
 	log.Println("Publisher aggregator started.")
 	for {
 		select {

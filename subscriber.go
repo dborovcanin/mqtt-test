@@ -45,7 +45,7 @@ func NewSubscriber(cli mqtt.Client, cfg SubscriberConfig) Subscriber {
 	}
 
 	go func() {
-		ticker := time.NewTicker(time.Second * 30)
+		ticker := time.NewTicker(time.Second * 15)
 		for {
 			<-ticker.C
 			received := atomic.LoadInt64(ret.numMessages)

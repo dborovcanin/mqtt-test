@@ -58,20 +58,21 @@ func (p *publisher) Publish() PubResult {
 		tkn := p.client.Publish(p.topic, p.qos, false, p.payload)
 		if tkn.Error() != nil {
 			log.Printf("WARN: failed to create publish token %s\n", tkn.Error())
-			time.Sleep(p.timeout)
+			// time.Sleep(p.wait)
 			continue
 		}
-		if tkn.WaitTimeout(p.wait) {
+		if tkn.WaitTimeout(p.timeout) {
 			if tkn.Error() != nil {
 				log.Printf("WARN: failed to publish %s\n", tkn.Error())
-			} else {
-				// log.Println("Client " + p.id + " published")
 			}
+			// else {
+			// log.Println("Client " + p.id + " published")
+			// }
 			published++
-			time.Sleep(p.timeout)
+			// time.Sleep(p.wait)
 			continue
 		}
-		log.Println("WARN: failed to publish due to timeout")
+		log.Println("WARN: Client " + p.id + " failed to publish due to timeout")
 	}
 	return PubResult{p.id, published}
 }
